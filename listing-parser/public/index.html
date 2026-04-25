@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Парсер объявлений о недвижимости</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0d0f12; --surface:#15181e; --surface2:#1c2028; --border:#262b35;
+    --accent:#e8ff47; --accent2:#47c6ff; --text:#e8eaf0; --muted:#6b7280;
+    --success:#34d399; --error:#f87171;
+  }
+  body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:48px 24px; }
+  .wrapper { width:100%; max-width:720px; }
+  header { margin-bottom:48px; }
+  .tag { display:inline-block; font-family:'DM Mono',monospace; font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:var(--accent); border:1px solid var(--accent); padding:4px 10px; border-radius:2px; margin-bottom:16px; }
+  h1 { font-size:clamp(28px,5vw,42px); font-weight:800; line-height:1.1; letter-spacing:-0.02em; }
+  h1 span { color:var(--accent); }
+  .subtitle { margin-top:10px; color:var(--muted); font-size:15px; font-weight:400; }
+  .input-section { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; margin-bottom:24px; }
+  .input-label { font-size:12px; font-family:'DM Mono',monospace; color:var(--muted); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:10px; display:block; }
+  .input-row { display:flex; gap:12px; }
+  input[type="text"] { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px 16px; color:var(--text); font-family:'DM Mono',monospace; font-size:13px; outline:none; transition:border-color 0.2s; }
+  input[type="text"]:focus { border-color:var(--accent); }
+  input[type="text"]::placeholder { color:var(--muted); }
+  .parse-btn { background:var(--accent); color:#0d0f12; border:none; border-radius:8px; padding:12px 22px; font-family:'Syne',sans-serif; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; transition:transform 0.15s,opacity 0.15s; }
+  .parse-btn:hover:not(:disabled) { transform:translateY(-1px); opacity:0.92; }
+  .parse-btn:disabled { opacity:0.45; cursor:not-allowed; }
+  .history-section { margin-top:12px; display:flex; flex-wrap:wrap; gap:8px; }
+  .history-chip { font-family:'DM Mono',monospace; font-size:11px; background:var(--surface2); border:1px solid var(--border); color:var(--muted); padding:4px 10px; border-radius:4px; cursor:pointer; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; transition:border-color 0.2s,color 0.2s; }
+  .history-chip:hover { border-color:var(--accent2); color:var(--accent2); }
+  .status { display:none; align-items:center; gap:10px; padding:14px 18px; border-radius:8px; font-size:14px; margin-bottom:20px; border:1px solid; }
+  .status.loading { display:flex; background:rgba(71,198,255,0.07); border-color:rgba(71,198,255,0.25); color:var(--accent2); }
+  .status.error { display:flex; background:rgba(248,113,113,0.07); border-color:rgba(248,113,113,0.25); color:var(--error); }
+  .spinner { width:16px; height:16px; border:2px solid rgba(71,198,255,0.3); border-top-color:var(--accent2); border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .result-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; animation:fadeUp 0.4s ease; margin-bottom:16px; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  .card-header { background:var(--surface2); padding:16px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:8px; }
+  .card-header-left { display:flex; align-items:center; gap:10px; }
+  .status-dot { width:8px; height:8px; background:var(--success); border-radius:50%; box-shadow:0 0 8px var(--success); }
+  .card-title { font-size:13px; font-family:'DM Mono',monospace; color:var(--muted); }
+  .source-link { font-family:'DM Mono',monospace; font-size:11px; color:var(--accent2); text-decoration:none; border:1px solid rgba(71,198,255,0.25); padding:4px 10px; border-radius:4px; transition:background 0.2s; }
+  .source-link:hover { background:rgba(71,198,255,0.08); }
+  .card-grid { display:grid; grid-template-columns:1fr 1fr; }
+  .card-field { padding:20px 24px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); }
+  .card-field:nth-child(2n) { border-right:none; }
+  .card-field:nth-last-child(-n+2) { border-bottom:none; }
+  .field-key { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+  .field-value { font-size:18px; font-weight:700; color:var(--text); line-height:1.2; }
+  .field-value.price { color:var(--accent); font-size:22px; }
+  .field-value.na { color:var(--muted); font-weight:400; font-size:14px; font-style:italic; }
+  .desc-section { padding:20px 24px; border-top:1px solid var(--border); }
+  .desc-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+  .desc-text { font-size:14px; line-height:1.65; color:#b0b8c8; }
+  .empty-state { text-align:center; padding:60px 24px; color:var(--muted); }
+  .empty-icon { font-size:40px; margin-bottom:12px; }
+  .empty-state p { font-size:14px; }
+  @media (max-width:520px) {
+    .card-grid { grid-template-columns:1fr; }
+    .card-field { border-right:none !important; }
+    .card-field:nth-last-child(-n+2) { border-bottom:1px solid var(--border) !important; }
+    .card-field:last-child { border-bottom:none !important; }
+    .input-row { flex-direction:column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <header>
+    <div class="tag">AI Парсер</div>
+    <h1>Недвижимость<br><span>без лишнего шума</span></h1>
+    <p class="subtitle">Вставь ссылку на объявление — получи структурированные данные</p>
+  </header>
+
+  <div class="input-section">
+    <label class="input-label">Ссылка на объявление</label>
+    <div class="input-row">
+      <input type="text" id="urlInput" placeholder="https://www.4zida.rs/..." />
+      <button class="parse-btn" id="parseBtn">Анализ →</button>
+    </div>
+    <div class="history-section" id="historyChips"></div>
+  </div>
+
+  <div class="status loading" id="statusLoading">
+    <div class="spinner"></div>
+    <span id="statusText">Анализирую...</span>
+  </div>
+  <div class="status error" id="statusError">
+    <span>⚠</span>
+    <span id="errorText">Ошибка</span>
+  </div>
+
+  <div id="resultsList">
+    <div class="empty-state">
+      <div class="empty-icon">🏠</div>
+      <p>Результаты появятся здесь</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  let busy = false;
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem('re_parser_v1') || '[]'); } catch {}
+
+  const urlInput    = document.getElementById('urlInput');
+  const parseBtn    = document.getElementById('parseBtn');
+  const histChips   = document.getElementById('historyChips');
+  const loadStatus  = document.getElementById('statusLoading');
+  const errStatus   = document.getElementById('statusError');
+  const statusText  = document.getElementById('statusText');
+  const errorText   = document.getElementById('errorText');
+  const resultsList = document.getElementById('resultsList');
+
+  function showLoading(msg) {
+    loadStatus.style.display = 'flex';
+    errStatus.style.display  = 'none';
+    statusText.textContent = msg || 'Анализирую...';
+  }
+  function showError(msg) {
+    loadStatus.style.display = 'none';
+    errStatus.style.display  = 'flex';
+    errorText.textContent = msg;
+  }
+  function hideStatus() {
+    loadStatus.style.display = 'none';
+    errStatus.style.display  = 'none';
+  }
+
+  function saveHistory(url) {
+    history = [url, ...history.filter(u => u !== url)].slice(0, 10);
+    try { localStorage.setItem('re_parser_v1', JSON.stringify(history)); } catch {}
+    renderHistory();
+  }
+
+  function renderHistory() {
+    histChips.innerHTML = '';
+    history.slice(0, 6).forEach(url => {
+      const chip = document.createElement('div');
+      chip.className = 'history-chip';
+      chip.title = url;
+      chip.textContent = url.replace(/https?:\/\/(www\.)?/, '').slice(0, 55) + '…';
+      chip.addEventListener('click', () => { urlInput.value = url; });
+      histChips.appendChild(chip);
+    });
+  }
+
+  function urlFallback(url) {
+    const u = url.toLowerCase();
+    return {
+      city:     u.includes('novi-sad') ? 'Нови Сад' : u.includes('beograd') ? 'Белград' : u.includes('nis') ? 'Ниш' : null,
+      district: null,
+      rooms:    u.includes('jednosoban') ? '1-комнатная' : u.includes('dvoiposoban') ? '2.5-комнатная' : u.includes('dvosoban') ? '2-комнатная' : u.includes('trosoban') ? '3-комнатная' : null,
+      area:     null,
+      price:    null,
+      type:     u.includes('izdavanje') ? 'аренда' : u.includes('prodaja') ? 'продажа' : null,
+      description: 'Не удалось получить полные данные. Откройте ссылку напрямую для просмотра объявления.'
+    };
+  }
+
+  function extractJson(text) {
+    const results = [];
+    let depth = 0, start = -1;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '{') { if (!depth) start = i; depth++; }
+      else if (c === '}' && depth > 0) {
+        depth--;
+        if (!depth && start >= 0) {
+          try {
+            const obj = JSON.parse(text.slice(start, i + 1));
+            if (obj && typeof obj === 'object' && !Array.isArray(obj)) results.push(obj);
+          } catch {}
+          start = -1;
+        }
+      }
+    }
+    const keys = ['city','district','rooms','area','price','type','description'];
+    const valid = results.filter(o => keys.some(k => o[k]));
+    return valid.length ? valid[valid.length - 1] : null;
+  }
+
+  async function fetchListingData(url) {
+    showLoading('Ищу объявление через AI...');
+
+    // Запрос идёт на наш сервер, а не напрямую в Claude API
+    const response = await fetch('/api/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || `Ошибка сервера: ${response.status}`);
+    }
+
+    showLoading('Обрабатываю данные...');
+    const data = await response.json();
+    const text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    return extractJson(text) || urlFallback(url);
+  }
+
+  const FIELD_LABELS = {
+    city: '🏙 Город', district: '📍 Район / Улица',
+    rooms: '🛏 Комнат', area: '📐 Площадь',
+    price: '💰 Цена', type: '🏢 Тип сделки'
+  };
+
+  function renderCard(data, url) {
+    const field = (key) => {
+      const val = data[key];
+      const cls = key === 'price' ? ' price' : '';
+      return `<div class="card-field">
+        <div class="field-key">${FIELD_LABELS[key]}</div>
+        ${val ? `<div class="field-value${cls}">${val}</div>` : `<div class="field-value na">—</div>`}
+      </div>`;
+    };
+    return `<div class="result-card">
+      <div class="card-header">
+        <div class="card-header-left">
+          <div class="status-dot"></div>
+          <span class="card-title">Объявление обработано</span>
+        </div>
+        <a class="source-link" href="${url}" target="_blank" rel="noopener">Источник ↗</a>
+      </div>
+      <div class="card-grid">
+        ${['city','district','rooms','area','price','type'].map(field).join('')}
+      </div>
+      <div class="desc-section">
+        <div class="desc-label">📝 Описание</div>
+        <div class="desc-text">${data.description || '—'}</div>
+      </div>
+    </div>`;
+  }
+
+  async function run() {
+    if (busy) return;
+    const url = urlInput.value.trim();
+    if (!url) { showError('Введите ссылку на объявление'); return; }
+    if (!url.startsWith('http')) { showError('Ссылка должна начинаться с http...'); return; }
+
+    busy = true;
+    parseBtn.disabled = true;
+
+    try {
+      const result = await fetchListingData(url);
+      hideStatus();
+      saveHistory(url);
+
+      const empty = resultsList.querySelector('.empty-state');
+      if (empty) empty.remove();
+
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = renderCard(result, url);
+      resultsList.prepend(wrapper.firstElementChild);
+    } catch (err) {
+      showError(err.message || 'Неизвестная ошибка');
+    } finally {
+      busy = false;
+      parseBtn.disabled = false;
+    }
+  }
+
+  parseBtn.addEventListener('click', run);
+  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+  renderHistory();
+})();
+</script>
+</body>
+</html>
